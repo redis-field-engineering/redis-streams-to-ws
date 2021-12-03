@@ -28,19 +28,12 @@ const (
 	writeWait = 10 * time.Second
 )
 
-func readStream() ([]byte, time.Time, error) {
+func readStream(lastMod time.Time) ([]byte, time.Time, error) {
 	var p []byte
-	//var err error
-	lastMod := time.Now()
+	p = []byte(strconv.FormatInt(lastMod.UnixMilli(), 10))
+	log.Println("readStream:", strconv.FormatInt(lastMod.UnixMilli(), 10))
 
-	//p, err = readFile()
-
-	//if err != nil {
-	//	return p, lastMod, err
-	//}
-	p = []byte(lastMod.String())
-
-	return p, lastMod, nil
+	return p, time.Now(), nil
 }
 
 func writer(ws *websocket.Conn, lastMod time.Time) {
@@ -56,7 +49,7 @@ func writer(ws *websocket.Conn, lastMod time.Time) {
 			var p []byte
 			var err error
 
-			p, lastMod, err = readStream()
+			p, lastMod, err = readStream(lastMod)
 
 			if err != nil {
 				if s := err.Error(); s != lastError {
@@ -100,7 +93,7 @@ func serveTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	p, lastMod, err := readStream()
+	p, lastMod, err := readStream(time.Unix(0, 0))
 	if err != nil {
 		p = []byte(err.Error())
 		lastMod = time.Unix(0, 0)
