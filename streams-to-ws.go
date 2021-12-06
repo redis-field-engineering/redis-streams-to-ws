@@ -8,7 +8,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -36,33 +35,35 @@ type Streams struct {
 	rdb *redis.Client
 }
 
-func readStream(lastMod time.Time, rdb *redis.Client, stream string) ([]byte, time.Time, error) {
+func readStream(lastID string, rdb *redis.Client, stream string) ([]byte, string, error) {
 	var valmaps []map[string]interface{}
+	var maxID string
 	res, _ := rdb.XRead(ctx,
 		&redis.XReadArgs{
-			Streams: []string{stream, strconv.FormatInt(lastMod.UnixMilli(), 10)},
+			Streams: []string{stream, lastID},
 			Block:   pollPeriod},
 	).Result()
 
 	if len(res) == 0 {
-		return nil, time.Now(), nil
+		return nil, lastID, nil
 	}
 
 	for _, r := range res {
 		for _, j := range r.Messages {
 			valmaps = append(valmaps, j.Values)
+			maxID = j.ID
 		}
 	}
 
 	jsonByte, err := json.Marshal(valmaps)
 	if err != nil {
-		return []byte("parseError"), time.Now(), err
+		return []byte("parseError"), lastID, err
 	}
 
-	return jsonByte, time.Now(), nil
+	return jsonByte, maxID, nil
 }
 
-func writer(ws *websocket.Conn, lastMod time.Time, rdb *redis.Client, stream string) {
+func writer(ws *websocket.Conn, lastID string, rdb *redis.Client, stream string) {
 	lastError := ""
 	fileTicker := time.NewTicker(pollPeriod)
 	defer func() {
@@ -75,7 +76,7 @@ func writer(ws *websocket.Conn, lastMod time.Time, rdb *redis.Client, stream str
 			var p []byte
 			var err error
 
-			p, lastMod, err = readStream(lastMod, rdb, stream)
+			p, lastID, err = readStream(lastID, rdb, stream)
 
 			if err != nil {
 				if s := err.Error(); s != lastError {
@@ -97,7 +98,7 @@ func writer(ws *websocket.Conn, lastMod time.Time, rdb *redis.Client, stream str
 }
 
 func (stream *Streams) serveWs(w http.ResponseWriter, r *http.Request) {
-	var lastMod time.Time
+	var lastMod string
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		if _, ok := err.(websocket.HandshakeError); !ok {
@@ -106,8 +107,9 @@ func (stream *Streams) serveWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if n, err := strconv.ParseInt(r.FormValue("lastMod"), 16, 64); err == nil {
-		lastMod = time.Unix(0, n)
+	lastMod = r.FormValue("lastMod")
+	if lastMod == "" {
+		lastMod = "0-0"
 	}
 
 	s := r.FormValue("Stream")
@@ -125,10 +127,10 @@ func (stream *Streams) serveTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	p, lastMod, err := readStream(time.Unix(0, 0), stream.rdb, s)
+	p, lastMod, err := readStream("0-0", stream.rdb, s)
 	if err != nil {
 		p = []byte(err.Error())
-		lastMod = time.Unix(0, 0)
+		lastMod = "0"
 	}
 	var v = struct {
 		Host    string
@@ -138,7 +140,7 @@ func (stream *Streams) serveTest(w http.ResponseWriter, r *http.Request) {
 	}{
 		r.Host,
 		string(p),
-		strconv.FormatInt(lastMod.UnixNano(), 16),
+		lastMod,
 		s,
 	}
 	dataTempl.Execute(w, &v)
