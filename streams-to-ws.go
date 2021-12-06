@@ -1,16 +1,15 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"strconv"
 	"time"
-
-	"html/template"
-
-	"context"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
@@ -28,7 +27,7 @@ var (
 
 const (
 	// Poll file for changes with this period.
-	filePeriod = 100 * time.Millisecond
+	pollPeriod = 100 * time.Millisecond
 	// Time allowed to write the file to the client.
 	writeWait = 10 * time.Second
 )
@@ -37,23 +36,35 @@ type Streams struct {
 	rdb *redis.Client
 }
 
-func readStream(lastMod time.Time, rdb *redis.Client) ([]byte, time.Time, error) {
-	var p []byte
-	//p = []byte(strconv.FormatInt(lastMod.UnixMilli(), 10))
-	r, err := rdb.Ping(ctx).Result()
-	if err != nil {
-		log.Println(err)
-		return []byte(r), time.Now(), err
+func readStream(lastMod time.Time, rdb *redis.Client, stream string) ([]byte, time.Time, error) {
+	var valmaps []map[string]interface{}
+	res, _ := rdb.XRead(ctx,
+		&redis.XReadArgs{
+			Streams: []string{stream, strconv.FormatInt(lastMod.UnixMilli(), 10)},
+			Block:   pollPeriod},
+	).Result()
+
+	if len(res) == 0 {
+		return nil, time.Now(), nil
 	}
 
-	p = []byte(strconv.FormatInt(lastMod.UnixMilli(), 10) + " " + r)
+	for _, r := range res {
+		for _, j := range r.Messages {
+			valmaps = append(valmaps, j.Values)
+		}
+	}
 
-	return p, time.Now(), nil
+	jsonByte, err := json.Marshal(valmaps)
+	if err != nil {
+		return []byte("parseError"), time.Now(), err
+	}
+
+	return jsonByte, time.Now(), nil
 }
 
-func writer(ws *websocket.Conn, lastMod time.Time, rdb *redis.Client) {
+func writer(ws *websocket.Conn, lastMod time.Time, rdb *redis.Client, stream string) {
 	lastError := ""
-	fileTicker := time.NewTicker(filePeriod)
+	fileTicker := time.NewTicker(pollPeriod)
 	defer func() {
 		fileTicker.Stop()
 		ws.Close()
@@ -64,7 +75,7 @@ func writer(ws *websocket.Conn, lastMod time.Time, rdb *redis.Client) {
 			var p []byte
 			var err error
 
-			p, lastMod, err = readStream(lastMod, rdb)
+			p, lastMod, err = readStream(lastMod, rdb, stream)
 
 			if err != nil {
 				if s := err.Error(); s != lastError {
@@ -99,16 +110,22 @@ func (stream *Streams) serveWs(w http.ResponseWriter, r *http.Request) {
 		lastMod = time.Unix(0, n)
 	}
 
-	go writer(ws, lastMod, stream.rdb)
+	s := r.FormValue("Stream")
+	if s == "" {
+		s = "default_stream"
+	}
+
+	go writer(ws, lastMod, stream.rdb, s)
 }
 
 func (stream *Streams) serveTest(w http.ResponseWriter, r *http.Request) {
+	s := "test_stream"
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	p, lastMod, err := readStream(time.Unix(0, 0), stream.rdb)
+	p, lastMod, err := readStream(time.Unix(0, 0), stream.rdb, s)
 	if err != nil {
 		p = []byte(err.Error())
 		lastMod = time.Unix(0, 0)
@@ -117,10 +134,12 @@ func (stream *Streams) serveTest(w http.ResponseWriter, r *http.Request) {
 		Host    string
 		Data    string
 		LastMod string
+		Stream  string
 	}{
 		r.Host,
 		string(p),
 		strconv.FormatInt(lastMod.UnixNano(), 16),
+		s,
 	}
 	dataTempl.Execute(w, &v)
 }
@@ -155,7 +174,7 @@ const dataHTML = `<!DOCTYPE html>
         <script type="text/javascript">
             (function() {
                 var data = document.getElementById("fileData");
-                var conn = new WebSocket("ws://{{.Host}}/ws?lastMod={{.LastMod}}");
+                var conn = new WebSocket("ws://{{.Host}}/ws?lastMod={{.LastMod}}&Stream={{.Stream}}");
                 conn.onclose = function(evt) {
                     data.textContent = 'Connection closed';
                 }
