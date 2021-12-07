@@ -18,7 +18,7 @@ Using Redis CLI add an entry to the test stream and watch the websocket test pag
 
 ```
 $ for j in {1..10}; do
-redis-cli xadd test_stream "*" key${j} value${j} count $j
+redis-cli xadd test_stream "*" key value${j} count $j time `date +%s.%N` user `whoami`
 sleep 1
 done
 ```

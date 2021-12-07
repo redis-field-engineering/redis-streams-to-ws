@@ -180,18 +180,64 @@ const dataHTML = `<!DOCTYPE html>
     </head>
     <body>
         <pre id="fileData">{{.Data}}</pre>
-        <script type="text/javascript">
-            (function() {
-                var data = document.getElementById("fileData");
-                var conn = new WebSocket("ws://{{.Host}}/ws?lastMod={{.LastMod}}&Stream={{.Stream}}");
-                conn.onclose = function(evt) {
-                    data.textContent = 'Connection closed';
-                }
-                conn.onmessage = function(evt) {
-                    data.textContent = evt.data;
-                }
-            })();
-        </script>
+	<p id="showData"></p>
+	<script>
+	function CreateTableFromJSON(datas) {
+	    data = JSON.parse(datas);
+	    var col = [];
+	    for (var i = 0; i < data.length; i++) {
+		for (var key in data[i]) {
+		    if (col.indexOf(key) === -1) {
+			col.push(key);
+		    }
+		}
+	    }
+
+	    // CREATE DYNAMIC TABLE.
+	    var table = document.createElement("table");
+    
+	    // CREATE HTML TABLE HEADER ROW USING THE EXTRACTED HEADERS ABOVE.
+    
+	    var tr = table.insertRow(-1);                   // TABLE ROW.
+    
+	    for (var i = 0; i < col.length; i++) {
+		var th = document.createElement("th");      // TABLE HEADER.
+		th.innerHTML = col[i];
+		tr.appendChild(th);
+	    }
+    
+	    // ADD JSON DATA TO THE TABLE AS ROWS.
+	    for (var i = 0; i < data.length; i++) {
+    
+		tr = table.insertRow(-1);
+    
+		for (var j = 0; j < col.length; j++) {
+		    var tabCell = tr.insertCell(-1);
+		    tabCell.innerHTML = data[i][col[j]];
+		}
+	    }
+    
+	    // FINALLY ADD THE NEWLY CREATED TABLE WITH JSON DATA TO A CONTAINER.
+	    var divContainer = document.getElementById("showData");
+	    divContainer.innerHTML = "";
+	    divContainer.appendChild(table);
+	}
+    </script>
+    <script type="text/javascript">
+        (function() {
+            var data = document.getElementById("fileData");
+            var conn = new WebSocket("ws://{{.Host}}/ws?lastMod={{.LastMod}}&Stream={{.Stream}}");
+            conn.onclose = function(evt) {
+                data.textContent = 'Connection closed';
+            }
+            conn.onmessage = function(evt) {
+		CreateTableFromJSON(evt.data);
+                //data.textContent = evt.data;
+            }
+        })();
+    </script>
+    
+    
     </body>
 </html>
 `
