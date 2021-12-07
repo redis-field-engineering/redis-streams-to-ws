@@ -6,6 +6,12 @@ Proof of concept code where a web socket can receive all updates on a [Redis Str
 
 ### Testing
 
+Startup docker-compose
+
+```
+docker-compose up
+```
+
 Open a [web browser](http://localhost:8080/test)
 
 Using Redis CLI add an entry to the test stream and watch the websocket test page update
@@ -13,6 +19,6 @@ Using Redis CLI add an entry to the test stream and watch the websocket test pag
 ```
 $ for j in {1..10}; do
 redis-cli xadd test_stream "*" key${j} value${j} count $j
-sleep 2
+sleep 1
 done
 ```

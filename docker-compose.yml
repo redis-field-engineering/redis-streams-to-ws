@@ -4,3 +4,13 @@ services:
     image: "redislabs/redismod:edge"
     ports:
       - "6379:6379"
+  streams2ws:
+    image: "maguec/redis-streams-to-ws:latest"
+    ports:
+      - "8080:8080"
+    links:
+      - "redis:redis"
+    environment:
+      - REDIS_SERVER=redis
+
+
