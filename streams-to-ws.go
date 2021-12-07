@@ -179,7 +179,13 @@ const dataHTML = `<!DOCTYPE html>
         <title>WebSocket Example</title>
     </head>
     <body>
-        <pre id="fileData">{{.Data}}</pre>
+        <p>Add data to the stream: {{ .Stream }}</p>
+	<pre>
+	for j in {1..10}; do
+		redis-cli xadd test_stream "*" key value${j} count $j time &#96;date +%s.%N&#96; user &#96;whoami&#96;
+		sleep 1
+	done
+	</pre>
 	<p id="showData"></p>
 	<script>
 	function CreateTableFromJSON(datas) {
@@ -232,7 +238,6 @@ const dataHTML = `<!DOCTYPE html>
             }
             conn.onmessage = function(evt) {
 		CreateTableFromJSON(evt.data);
-                //data.textContent = evt.data;
             }
         })();
     </script>
