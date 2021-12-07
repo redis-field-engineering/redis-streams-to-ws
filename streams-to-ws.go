@@ -3,26 +3,32 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"time"
 
+	"github.com/alexflint/go-arg"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
 )
 
 var (
 	ctx      = context.Background()
-	addr     = flag.String("addr", ":8080", "http service address")
 	upgrader = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 	}
 	dataTempl = template.Must(template.New("").Parse(dataHTML))
 )
+
+var args struct {
+	Addr          string `help:"where to listen for websocket requests" default:":8080" arg:"env:LISTEN"`
+	RedisServer   string `help:"Redis to connect to" default:"localhost" arg:"--redis-host, -s, env:REDIS_SERVER"`
+	RedisPort     int    `help:"Redis port to connect to" default:"6379" arg:"--redis-port, -p, env:REDIS_PORT"`
+	RedisPassword string `help:"Redis password" default:"" arg:"--redis-password, -a, env:REDIS_PASSWORD"`
+}
 
 const (
 	// Poll file for changes with this period.
@@ -147,9 +153,10 @@ func (stream *Streams) serveTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	arg.MustParse(&args)
 	redisClient := redis.NewClient(&redis.Options{
-		Password:        "",
-		Addr:            fmt.Sprintf("%s:%d", "localhost", 6379),
+		Password:        args.RedisPassword,
+		Addr:            fmt.Sprintf("%s:%d", args.RedisServer, args.RedisPort),
 		DB:              0,
 		MinIdleConns:    1,                    // make sure there are at least this many connections
 		MinRetryBackoff: 8 * time.Millisecond, //minimum amount of time to try and backupf
@@ -161,7 +168,7 @@ func main() {
 	streams := &Streams{rdb: redisClient}
 	http.HandleFunc("/ws", streams.serveWs)
 	http.HandleFunc("/test", streams.serveTest)
-	if err := http.ListenAndServe(*addr, nil); err != nil {
+	if err := http.ListenAndServe(args.Addr, nil); err != nil {
 		log.Fatal(err)
 	}
 }
